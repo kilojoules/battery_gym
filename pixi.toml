@@ -1,0 +1,20 @@
+[project]
+name = "battery_gym"
+version = "0.1.0"
+description = "Reproduction of Srinivasa et al. 2026 battery-fleet RL"
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "linux-64"]
+
+[tasks]
+test = "python tests/sanity.py"
+run-small = "python run.py --B 2 3 --c 2 3 --d 2 3 --T 100000"
+multi-seed = "python multi_seed.py"
+elm-sweep = "python elm_sweep.py"
+
+[dependencies]
+python = "==3.11.*"
+numpy = ">=1.26"
+matplotlib = ">=3.8"
+
+[pypi-dependencies]
+fatpack = "==0.7.8"
