@@ -12,7 +12,7 @@ multi-seed = "python multi_seed.py"
 elm-sweep = "python elm_sweep.py"
 
 [dependencies]
-python = "==3.11.*"
+python = "3.11.*"
 numpy = ">=1.26"
 matplotlib = ">=3.8"
 
