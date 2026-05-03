@@ -89,6 +89,14 @@ cycles. `env.step()` and `agents.proxy_reward_for_action()` use this ordering.
 
 - `results.json` — per-agent metrics + full SoC traces from the latest run.
 - `fig_dod_tuned.png` — DoD histograms equivalent to paper Fig 2.
+- `fig_headline.png` — repro.py output: per-battery DoD at B=(10,100).
+- `fig_lumi_summary.png` — D vs config bar chart from LUMI sweep.
+- `fig_soc_traces.png` — Naive vs ELM SoC time series, B=(10,100), 1000 steps.
+- `fig_dod_grid.png` — 5-config × 2-battery DoD grid (Naive vs ELM, LUMI seed=42).
+- `fig_action_match.png` — bar chart: ELM matches Greedy 95.7-99.6% on held-out states.
+- `fig_proxy_vs_d.png` — scatter of cumulative proxy R vs rainflow D across 5 configs × 2 seeds.
+
+Regenerate the last four with `python plot_all.py` (uses cached LUMI artifacts).
 
 ## Honest framing
 
