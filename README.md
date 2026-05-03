@@ -90,13 +90,12 @@ cycles. `env.step()` and `agents.proxy_reward_for_action()` use this ordering.
 - `results.json` — per-agent metrics + full SoC traces from the latest run.
 - `fig_dod_tuned.png` — DoD histograms equivalent to paper Fig 2.
 - `fig_headline.png` — repro.py output: per-battery DoD at B=(10,100).
-- `fig_lumi_summary.png` — D vs config bar chart from LUMI sweep.
 - `fig_soc_traces.png` — Naive vs ELM SoC time series, B=(10,100), 1000 steps.
-- `fig_dod_grid.png` — 5-config × 2-battery DoD grid (Naive vs ELM, LUMI seed=42).
+- `fig_dod_grid.png` — 5-config × 2-battery DoD grid (Naive vs ELM).
 - `fig_action_match.png` — bar chart: ELM matches Greedy 95.7-99.6% on held-out states.
 - `fig_proxy_vs_d.png` — scatter of cumulative proxy R vs rainflow D across 5 configs × 2 seeds.
 
-Regenerate the last four with `python plot_all.py` (uses cached LUMI artifacts).
+Regenerate the last four with `python plot_all.py` (uses cached run artifacts).
 
 ## Honest framing
 
@@ -135,36 +134,7 @@ histograms (`fig_headline.png`): Naive over-cycles the small battery (mass at
 high DoD); ELM-RL redistributes regulation across the fleet so the small
 battery stays shallow. Total degradation drops ~55% vs Naive.
 
-## LUMI run (T=1M, N=2 seeds per config, het fleets)
-
-10-task Slurm array on `small` partition (8 CPUs/task). Job 18086082.
-
-| Config | Naive D | Greedy D | ELM-RL D | ELM vs Naive | ELM vs Greedy |
-|---|---:|---:|---:|---:|---:|
-| B=(2, 20)   | 3.688 ± 0.010 | 1.825 ± 0.002 | 1.858 ± 0.004 | **−49.6%** | −1.8% |
-| B=(5, 20)   | 2.374 ± 0.005 | 1.770 ± 0.001 | 1.949 ± 0.077 | **−17.9%** | −10.1% |
-| B=(2, 50)   | 3.134 ± 0.005 | 0.788 ± 0.009 | 0.792 ± 0.010 | **−74.7%** | −0.5% |
-| B=(5, 50)   | 1.796 ± 0.002 | 0.771 ± 0.008 | 0.816 ± 0.009 | **−54.6%** | −5.9% |
-| B=(10,100)  | 0.963 ± 0.003 | 0.378 ± 0.001 | 0.399 ± 0.002 | **−58.6%** | −5.6% |
-
-Caveat: cross-seed σ shown is paired between two seeds only (N=2). ELM−Greedy
-gaps for B=(2,50), B=(2,20), B=(10,100) are within paired noise.
-
-ELM holds at scale: B=(10,100) still −58.6% over Naive, within 5.6% of Greedy.
-See `fig_lumi_summary.png`.
-
-## Big het runs (T=500k, single seed, post-fix ELM)
-
-These four configs are what `lumi_run.sh` will scale up.
-
-| Config | Naive D | Greedy D | ELM-RL D | ELM vs Naive | ELM vs Greedy |
-|--------|--------:|---------:|---------:|-------------:|--------------:|
-| B=(2,20) | 1.84 | 0.91 | 0.93 | **−49.5%** | −2.2% |
-| B=(2,50) | 1.57 | 0.39 | 0.40 | **−74.2%** | −2.0% |
-| B=(5,20) | 1.19 | 0.88 | 0.98 | −17.6% | −11.5% |
-| B=(5,50) | 0.90 | 0.39 | 0.41 | −54.4% | −5.9% |
-
-## Heterogeneous fleet result (the LUMI use case)
+## Heterogeneous fleet result
 
 Symmetric fleets (B=(N,N) with c=d) hit a structural ceiling: at large N,
 Naive's proportional allocation is near-optimal under the proxy reward, so
@@ -181,7 +151,7 @@ normalization + rich features [(b−sp), |b−sp|, sign, one-hot signal]):
 
 ELM nearly matches the analytic Greedy optimum at maximum heterogeneity.
 
-## Pre-LUMI checklist
+## Sanity checklist
 
 - [x] Closed-form sanity (`tests/sanity.py` — 11 tests, all passing). Covers
   stress-fn monotonicity, rainflow on constant / single-cycle / N-fixed-depth
@@ -189,9 +159,7 @@ ELM nearly matches the analytic Greedy optimum at maximum heterogeneity.
   enumeration, zero-policy → D=0.
 - [x] Multi-seed reporting (`multi_seed.py`).
 - [x] ELM hyperparam sweep (`elm_sweep.py`) at B=(2,3), T=30k screening.
-- [x] Mid-scale check (`scale_check.py`) at B=(10,10) and (20,20) before LUMI.
+- [x] Mid-scale check (`scale_check.py`) at B=(10,10) and (20,20).
 - [x] Pixi env (`pixi.toml`).
-- [x] Slurm submission script (`lumi_run.sh`) — single-node CPU, OMP threads via
-  `$SLURM_CPUS_PER_TASK`. Edit `--account`, partition, modules.
 - [x] ELM checkpoint + per-step training log hooks (`agent.train(log_every=...,
   checkpoint_path=...)`).
