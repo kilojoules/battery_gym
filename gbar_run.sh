@@ -112,7 +112,18 @@ trap cleanup EXIT
 case "$cmd" in
     deploy)
         prompt_password
-        ssh_run "set -e; mkdir -p $REMOTE_DIR && cd $REMOTE_DIR/.. && (test -d battery_gym && cd battery_gym && git fetch && git reset --hard origin/main || git clone $REPO_URL battery_gym) && cd $REMOTE_DIR && bsub < gbar_phase2_ppo.sh"
+        ssh_run "set -e
+            mkdir -p ~/projects
+            cd ~/projects
+            if [ -d battery_gym/.git ]; then
+                cd battery_gym && git fetch && git reset --hard origin/main
+            else
+                rm -rf battery_gym
+                git clone $REPO_URL battery_gym
+                cd battery_gym
+            fi
+            chmod +x gbar_phase2_ppo.sh
+            bsub < gbar_phase2_ppo.sh"
         ;;
     status)
         prompt_password
