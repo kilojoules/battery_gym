@@ -1,0 +1,244 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\usepackage{amsmath, amssymb}
+\usepackage{booktabs}
+\usepackage{microtype}
+\usepackage[round]{natbib}
+\usepackage{xcolor}
+
+\hypersetup{colorlinks=true, linkcolor=black, citecolor=blue, urlcolor=blue}
+
+\title{Battery Storage Dispatch in Practice and in Theory:\\
+A Selective Literature Review of Modeling Approaches and Their Tradeoffs}
+\author{Julian Quick \\ \small{Lawrence Berkeley National Laboratory}}
+\date{2026-05-05}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Grid-scale battery energy storage systems (BESS) face a control problem at the intersection of stochastic markets, nonlinear degradation, and revenue stacking across timescales. Academic sizing tools (e.g.\ hydesign) and most published EMS formulations rely on deterministic mixed-integer LPs that assume perfect foresight over forecasted prices and resources. Commercial operators (Tesla Autobidder, Fluence Mosaic, W\"{a}rtsil\"{a} GEMS) instead use machine-learning-driven price forecasts coupled to stochastic optimization. This review surveys (i) what real BESS actually do for revenue, (ii) the dominant modeling-approach families (deterministic LP, stochastic programming, distributionally robust optimization, rolling-horizon MPC, reinforcement learning), and (iii) the major degradation-modeling choices (rainflow, semi-empirical, convex relaxation; post-hoc vs in-loop). Three takeaways relevant to the design of an open battery dispatch testbed: the perfect-foresight gap is real but modest (\(\sim\)11--16\%) at hourly arbitrage, RL with in-loop nonlinear degradation can outperform MILP with linearized degradation by large margins on published benchmarks, and sub-hourly RL is degenerate without an exogenous fast-timescale driving signal.
+\end{abstract}
+
+\section{Introduction}
+
+A grid-scale BESS dispatch policy decides, at each timestep, how much power to charge or discharge given forecasted prices, ancillary-service signals, renewable resource availability, grid constraints, and the cumulative degradation history of the battery. Three structural features make this problem distinctive:
+
+\begin{enumerate}
+\item \textbf{Multiple timescales.} Frequency-regulation signals update at seconds; real-time energy markets at 5--15 min; day-ahead at 1 h; replacement decisions at years. A single optimizer typically targets only one or two of these.
+\item \textbf{Nonlinear, history-dependent degradation.} Rainflow cycle counting on the SoC trajectory is the standard offline accuracy metric; it is non-Markovian and lacks a closed-form representation suitable for direct use as an LP objective \citep{xu2018modeling, shi2017convex}.
+\item \textbf{Stochastic exogenous inputs.} Day-ahead and intraday prices, wind, PV, and ancillary-service signals all carry forecast errors that are correlated, non-Gaussian, and regime-dependent.
+\end{enumerate}
+
+The dominant academic approach---used in the canonical hydesign tool \citep{murcia2024hydesign} and most published HPP-sizing studies---is to solve a deterministic MILP over a forecasted horizon, settle imbalance ex post, then iterate post-hoc rainflow over the resulting SoC trace to determine battery replacements. Commercial operators do something materially different. This review surveys the gap.
+
+\section{What real BESS operators do}
+
+\subsection{Revenue stacking has shifted to arbitrage}
+
+The CAISO market is the most-published example. As of end of 2024, 11.7\,GW of installed BESS capacity earned an average \$51{,}000/MW-yr (down 35\% from \$78{,}000/MW-yr in 2023) \citep{caiso2024battery}. Within that revenue, the share has shifted decisively: ancillary services (regulation + spinning reserve) dropped from \$13{,}279/MW-yr in 2023 to \$6{,}659/MW-yr in 2024 as the market saturated, while energy arbitrage rose from 3.7\% of total revenue in 2022 to 24.5\% by H1 2024. As of 2024, 43\% of CAISO BESS were primarily dispatched for arbitrage. German indexes show 2024 revenues of \(\sim\)\euro100{,}000--220{,}000/MW-yr depending on portfolio and season \citep{esnews2024germanindex}.
+
+\textbf{Implication.} Practitioner research on regulation-focused dispatch (e.g.\ heterogeneous-fleet RL for AGC tracking) is studying a shrinking revenue stream. Energy arbitrage, with its hourly-or-coarser timescale and direct exposure to forecast uncertainty, is now the central problem.
+
+\subsection{Commercial dispatch platforms are ML+stochastic, not deterministic LP}
+
+The three dominant commercial dispatch platforms---Tesla Autobidder ($>$100\,GWh dispatched globally), Fluence Mosaic (16\,GW deployed or awarded), and W\"{a}rtsil\"{a} GEMS ($>$9\,GWh monitored)---all explicitly combine:
+
+\begin{itemize}
+\item Machine-learning-driven price/load/generation forecasts,
+\item Stochastic optimization with explicit uncertainty representation,
+\item Continuous online retraining and bid revision.
+\end{itemize}
+
+Tesla's published description \citep{tesla2024autobidder} lists ``classical statistics, machine learning and numerical optimization'' as constituent techniques. Fluence Mosaic uses ``stochastic optimization models'' built on ML price forecasts \citep{fluence2024mosaic}. W\"{a}rtsil\"{a} GEMS Pulse (released October 2024) is positioned explicitly around predictive analytics for revenue resilience under unpredictable market regimes \citep{wartsila2025gems}.
+
+\textbf{Implication.} The commercial state of practice is several model-classes ahead of deterministic LP. Academic tools that compare RL to deterministic LP and find the LP wins are not capturing the actual performance frontier.
+
+\section{Modeling approaches}
+
+\subsection{Deterministic LP / MILP}
+
+The dominant academic baseline. Constraints are linear in SoC, ramp, and grid capacity; the objective is revenue minus a linear cycling-cost proxy. Hydesign \citep{murcia2024hydesign} uses CPLEX with week-by-week batches over a 25-year plant lifetime. Variants include rolling-horizon MILP (re-solved at each step with updated forecasts; closer to practical operation but never explicitly stochastic).
+
+\paragraph{Strengths.} Convex, optimal under stated assumptions, well-tooled (CPLEX, Gurobi, Pyomo). Closed-form dual variables enable sensitivity analysis. Easy to extend with linear constraints.
+
+\paragraph{Weaknesses.} Cannot natively represent (i) nonlinear cycling costs, (ii) forecast distributions (only point forecasts), (iii) history-dependent state (e.g.\ rainflow's running stack). Penalizing $|\Delta P|$ approximates degradation poorly when the cycle-depth-to-stress mapping is steep.
+
+\subsection{Stochastic programming}
+
+Two-stage and multi-stage variants represent uncertainty as a scenario tree: the first-stage decision (e.g.\ day-ahead bid) is followed by a second-stage decision (e.g.\ balancing-market settlement) conditioned on the realized scenario \citep{krishnamurthy2018stochastic}. \citet{zhu2024hpp} apply this to hybrid wind-battery plants in spot and balancing markets.
+
+\paragraph{Strengths.} Captures forecast uncertainty by construction. Provides explicit risk-conditional value-of-information.
+
+\paragraph{Weaknesses.} Computational burden grows exponentially in scenarios; scenario reduction introduces approximation error. Distribution must be specified or sampled, often from a small empirical history.
+
+\subsection{Distributionally robust optimization (DRO)}
+
+Optimizes over the worst case within an ambiguity set of probability distributions, typically defined by a Wasserstein ball around the empirical distribution \citep{xie2021wasserstein, ma2022wasserstein}. Avoids overfitting to a particular scenario sample.
+
+\paragraph{Strengths.} No need to specify the true distribution. Tractable reformulations exist for many problem classes. Tunable conservatism (ball radius).
+
+\paragraph{Weaknesses.} Conservatism can be hard to interpret economically. Ball-radius selection is itself a hyperparameter without a principled default.
+
+\subsection{Rolling-horizon model-predictive control (MPC)}
+
+Re-solves a (deterministic or stochastic) optimization at each step using the most recent forecast, applies only the first action, then re-measures. Now the dominant control framework in industry \citep{degradation2025mpc, evaluation2025mpc}.
+
+\paragraph{Strengths.} Adapts to forecast updates. Can be combined with any objective (LP, MILP, stochastic). Empirically reduces cost vs rule-based by 3.9--47\% depending on horizon and forecast quality \citep{evaluation2025mpc}.
+
+\paragraph{Weaknesses.} Long horizons accumulate forecast errors; short horizons miss strategic opportunities (e.g.\ saving SoC for a known peak in 6 hours). Battery-aging models inside MPC must be approximate to remain solvable in real time.
+
+\subsection{Reinforcement learning (RL)}
+
+Frames dispatch as an MDP with state (SoC, prices, residuals, forecasts) and action (charge/discharge), then learns a policy via DQN, PPO, SAC, or similar \citep{cao2020drl, sayfutdinov2022, kazemi2025rl}. The MIT Cao et al.\ benchmark \citep{cao2020drl} reports a NN-DDQN policy beating MILP by 58.5\% on lifetime profit when an accurate degradation model is included in the reward.
+
+\paragraph{Strengths.} (a) Reward can be arbitrary nonlinear (rainflow proxy, true cycling cost). (b) Policy is learned from sampled (forecast, realized) pairs so distributional robustness is implicit. (c) Inference is one forward pass---no per-step optimization. (d) Naturally handles continuous and high-dimensional state.
+
+\paragraph{Weaknesses.} (a) No optimality guarantee. (b) Sample-inefficient; PPO/SAC training is slower than MILP solve in many settings. (c) Degenerate when the underlying problem is convex with clean lookahead---collapses to a smooth approximation of greedy or LP \citep{srinivasa2026degradation}. (d) Hyperparameter brittle; results often poorly reproducible.
+
+\subsection{Hybrid approaches}
+
+Recent work explores hybrids: LP solutions used as expert demonstrations to bootstrap RL via behavior cloning \citep{boosting2024lp}, or RL adjusting LP setpoints at fast timescales (two-tier). These do not yet have a settled performance frontier.
+
+\section{Degradation modeling}
+
+\subsection{Rainflow}
+
+Rainflow cycle counting (ASTM E1049, equivalent to the Downing-Socie 4-point algorithm) extracts equivalent constant-amplitude cycles from a SoC trajectory. Each cycle is mapped to capacity loss via a stress function $f(\delta)$; total degradation is the sum. Rainflow is widely accepted as the offline accuracy benchmark \citep{xu2018modeling}.
+
+\paragraph{Tradeoff.} Non-Markovian: extracting cycles requires the full SoC stack. \citet{shi2017convex} construct a convex cycle-based relaxation that admits LP embedding; the relaxation introduces \(<\)2\% error vs offline rainflow on representative traces but is still less accurate than full rainflow.
+
+\subsection{Semi-empirical / equivalent-cycle}
+
+Maps capacity loss directly to throughput (charge transferred), weighted by cycle-depth-to-stress factors. Linear or piecewise-linear; trivially LP-compatible. Adopted in NREL's HPP degradation studies \citep{nrel2025bessdeg}. Misses the rainflow stack's dependence on cycle ordering.
+
+\paragraph{Tradeoff.} Tractable but inaccurate when cycle depth varies sharply within the operating window.
+
+\subsection{Post-hoc vs in-loop}
+
+Most academic dispatch optimizers (hydesign, most stochastic-LP work) compute degradation \emph{post-hoc} on the optimized SoC trace, then update SoH and iterate. The optimizer itself sees only a linear cycling proxy. \citet{cao2020drl}'s 58.5\% improvement over MILP comes specifically from including the rainflow-based degradation in the RL reward \emph{in the loop}---a representation MILP cannot replicate without convex relaxation.
+
+\textbf{Implication.} The strongest case for RL over LP in this domain is degradation-fidelity, not forecast handling. A direct head-to-head requires a benchmark where in-loop nonlinear degradation matters at the dispatch timescale.
+
+\section{Forecast uncertainty: how much does perfect foresight buy?}
+
+\citet{burlando2025foresight} report that a 1\,MW/1\,MWh BESS in the German continuous intraday market under a state-of-art forecast achieves \euro146{,}237/yr, only 11\% below perfect foresight. \citet{hancock2026rankcorrelation} show that Kendall's $\tau$ rank correlation of forecasts (rather than MAE) is the primary determinant of dispatch value: $\tau \in [0.85, 0.95]$ captures 97--100\% of perfect-foresight revenue, while persistence forecasts (\(\tau \approx 0.4\)) capture only 33\%. \citet{krishnamurthy2018stochastic} report 16\% gap between limited (24\,h day-ahead + 1\,h real-time) foresight and perfect foresight.
+
+\textbf{Implication.} Above a moderate forecast-quality threshold, the perfect-foresight gap is small (\(\sim\)10--15\%) for energy arbitrage. RL trained on (forecast, realized) pairs can in principle close this gap, but the upside ceiling is modest. The much larger reported gain---Cao et al.'s 58.5\%---comes from \emph{degradation modeling fidelity}, not forecast handling.
+
+\section{Design formulations: sizing-dispatch coupling}
+
+Two architectures dominate.
+
+\paragraph{Nested.} Outer surrogate-based optimizer (e.g.\ Bayesian / efficient global optimization) over capacity decisions; inner LP-style EMS over a representative year. Hydesign \citep{murcia2024hydesign} is a canonical example: \texttt{Parallel\_EGO} on the outside, \texttt{ems\_cplex} on the inside, post-hoc battery\_replacement loop iterates SoH. The decoupling buys tractability but assumes the inner LP's policy is the policy that will actually be deployed---an assumption the commercial-platform survey above suggests is wrong.
+
+\paragraph{Joint.} Single MILP/MINLP combining sizing variables and dispatch variables over a representative horizon. Computationally heavy; rarely scales beyond toy cases.
+
+\paragraph{Hybrid.} Sizing problem solves over discounted lifetime cash flows where dispatch is replaced by a learned RL policy or a faster surrogate. Open research direction; few published cases.
+
+\section{Synthesis: where the gaps actually live}
+
+Combining the above, the \emph{empirically large} gaps in current BESS dispatch modeling are:
+
+\begin{enumerate}
+\item \textbf{Degradation fidelity.} In-loop rainflow vs LP-friendly linear penalty. Cao 2020 reports 58\% on a representative arbitrage problem.
+\item \textbf{Replacement scheduling.} Most academic tools post-hoc iterate; no formulation jointly optimizes dispatch and replacement timing.
+\item \textbf{Multi-market revenue stacking.} Commercial platforms stack arbitrage + ancillary + capacity; academic tools usually pick one. Each adds a discrete decision (when to switch from one revenue stream to another) that LP cannot represent without large MILPs.
+\end{enumerate}
+
+The \emph{empirically modest} gaps:
+
+\begin{enumerate}
+\item \textbf{Perfect-foresight uplift at hourly resolution} (\(\sim\)11--16\%). RL training on stochastic forecasts can close this, but the absolute upside is bounded.
+\item \textbf{Sub-hourly RL on regulation signals.} Without a heterogeneous fleet or a constraint MILP cannot represent, online RL collapses to a smooth greedy heuristic \citep{srinivasa2026degradation}.
+\end{enumerate}
+
+\section{Implications for an open battery-dispatch testbed}
+
+For an open RL testbed (such as \texttt{battery\_gym}) targeting publishable comparison against LP baselines, the most defensible thesis is:
+
+\begin{quote}
+\itshape
+At hourly resolution, RL with in-loop nonlinear degradation reward outperforms LP with linearized cycling penalty, on Pareto frontier of revenue vs lifetime degradation, by a margin large enough to motivate replacement of LP-based EMS in tools like hydesign.
+\end{quote}
+
+This statement is testable with a single-week or single-year benchmark. Three concrete pilot questions follow:
+
+\begin{enumerate}
+\item Replicate \citet{cao2020drl}'s 58\% number with the published algorithm + a current LP baseline (e.g.\ hydesign's \texttt{ems\_cplex}). Sanity-check the gap.
+\item Score hydesign LP solutions under in-loop rainflow reward, then score a learned RL policy on the same trace. Identify the dispatch decisions where they disagree (e.g.\ deep cycle vs shallow cycle on a steep stress-function regime).
+\item Sweep $\alpha$ on the joint reward $R = \text{revenue} - \alpha \cdot D$ to map the Pareto frontier; report the LP-dominated and RL-dominated regions.
+\end{enumerate}
+
+Each is doable in 1--3 days on a laptop. A negative result---LP within noise of RL---is itself publishable as a refinement of the Cao 2020 finding.
+
+\bibliographystyle{plainnat}
+\begin{thebibliography}{99}
+
+\bibitem[Burlando et al., 2025]{burlando2025foresight}
+Burlando, F., et al. (2025). The Value of Battery Energy Storage in the Continuous Intraday Market: Forecast vs.\ Perfect Foresight Strategies. \emph{arXiv:2501.07121}.
+
+\bibitem[CAISO, 2025]{caiso2024battery}
+California ISO (2025). \emph{2024 Special Report on Battery Storage}. May 29, 2025. \url{https://www.caiso.com/documents/2024-special-report-on-battery-storage-may-29-2025.pdf}.
+
+\bibitem[Cao et al., 2020]{cao2020drl}
+Cao, J., Harrold, D., Fan, Z., Morstyn, T., Healey, D., Li, K. (2020). Deep Reinforcement Learning-Based Energy Storage Arbitrage With Accurate Lithium-Ion Battery Degradation Model. \emph{IEEE Transactions on Smart Grid}, 11(5):4513--4521.
+
+\bibitem[Energy-Storage News, 2024]{esnews2024germanindex}
+Energy-Storage.News (2024). New German BESS revenue indexes shed light on market and trading strategies. \url{https://www.energy-storage.news/new-german-bess-revenue-indexes-shed-light-on-market-and-trading-strategies/}.
+
+\bibitem[Evaluation 2025]{evaluation2025mpc}
+Schultheis, J. et al.\ (2025). Evaluating the Impact of Model Accuracy for Optimizing Battery Energy Storage Systems. \emph{arXiv:2506.17059}.
+
+\bibitem[Fluence, 2024]{fluence2024mosaic}
+Fluence Energy (2024). Mosaic Intelligent Bidding Software. \url{https://fluenceenergy.com/mosaic-intelligent-bidding-software/}.
+
+\bibitem[Hancock et al., 2026]{hancock2026rankcorrelation}
+Hancock, A.\ et al.\ (2026). When Forecast Accuracy Fails: Rank Correlation and Decision Quality in Multi-Market Battery Storage Optimization. \emph{arXiv:2604.12082}.
+
+\bibitem[Kazemi \& Ansari, 2025]{kazemi2025rl}
+Kazemi, M., Ansari, B.\ (2025). Reinforcement learning approaches for battery storage arbitrage: a review. \emph{Energies}, in press.
+
+\bibitem[Krishnamurthy et al., 2018]{krishnamurthy2018stochastic}
+Krishnamurthy, D., Uckun, C., Zhou, Z., Thimmapuram, P., Botterud, A.\ (2018). Energy storage arbitrage under day-ahead and real-time price uncertainty. \emph{IEEE Transactions on Power Systems}, 33(1):84--93.
+
+\bibitem[Ma et al., 2022]{ma2022wasserstein}
+Ma, K., Hu, X., Song, Y.\ (2022). Wasserstein distributionally robust optimization for renewable-storage co-provision of frequency-regulation services. \emph{IEEE Transactions on Sustainable Energy}.
+
+\bibitem[Murcia Le\'{o}n et al., 2024]{murcia2024hydesign}
+Murcia Le\'{o}n, J.\,P., Habbou, H., Friis-M\o ller, M., Gupta, M., Zhu, R., Das, K.\ (2024). HyDesign: a tool for sizing optimization of grid-connected hybrid power plants including wind, solar photovoltaic, and lithium-ion batteries. \emph{Wind Energy Science}, 9:759--776. \url{https://wes.copernicus.org/articles/9/759/2024/}.
+
+\bibitem[NREL, 2025]{nrel2025bessdeg}
+National Renewable Energy Laboratory (2025). Battery Degradation Modeling in Hybrid Power Plants: An Island System Unit Commitment Study. NREL/TP-FY25-84791.
+
+\bibitem[Sayfutdinov \& Vorobev, 2022]{sayfutdinov2022}
+Sayfutdinov, T., Vorobev, P.\ (2022). Optimal utilization strategy of the LiFePO\(_4\) battery storage. \emph{Applied Energy}, 316:119080.
+
+\bibitem[Shi et al., 2017]{shi2017convex}
+Shi, Y., Xu, B., Wang, D., Zhang, B.\ (2017). Using Battery Storage for Peak Shaving and Frequency Regulation: Joint Optimization for Superlinear Gains. \emph{arXiv:1703.07968}.
+
+\bibitem[Srinivasa et al., 2026]{srinivasa2026degradation}
+Srinivasa, A., Deulkar, K., Bhargava, V., Hajiesmaili, M., Shenoy, P.\ (2026). Degradation-Aware Frequency Regulation of a Heterogeneous Battery Fleet via Reinforcement Learning. \emph{arXiv:2601.22865v2}.
+
+\bibitem[Tesla, 2024]{tesla2024autobidder}
+Tesla, Inc.\ (2024). Autobidder Support Documentation. \url{https://www.tesla.com/support/energy/tesla-software/autobidder}.
+
+\bibitem[W\"{a}rtsil\"{a}, 2025]{wartsila2025gems}
+W\"{a}rtsil\"{a} Energy (2025). GEMS Pulse press release, October 2025. \url{https://www.wartsila.com/media/news/14-10-2025-wartsila-debuts-gems-pulse-a-new-software-solution-to-enhance-revenue-for-bess-customers-through-cell-to-fleet-data-analytics-3668996}.
+
+\bibitem[Xie et al., 2021]{xie2021wasserstein}
+Xie, W., et al.\ (2021). Wasserstein distributionally robust chance-constrained optimization for energy and reserve dispatch. \emph{European Journal of Operational Research}, 296(1):304--322.
+
+\bibitem[Xu, 2018]{xu2018modeling}
+Xu, B.\ (2018). \emph{Modeling and Control of Energy Storage Systems for Power System Operations}. Ph.D.\ thesis, University of Washington.
+
+\bibitem[Zhu et al., 2024]{zhu2024hpp}
+Zhu, R., Das, K., S\o rensen, P., Hansen, A.\,D.\ (2024). Enhancing profits of hybrid wind-battery plants in spot and balancing markets using data-driven two-level optimization. \emph{International Journal of Electrical Power \& Energy Systems}, 159:110030.
+
+\bibitem[Behavior Cloning 2024]{boosting2024lp}
+Wang, J., et al.\ (2024). Boosting the Performance of Deep Reinforcement Learning for Energy Management Systems using Behavior Cloning from Linear Programming Solutions. \emph{Proc.\ ACM e-Energy '24}.
+
+\end{thebibliography}
+
+\end{document}
