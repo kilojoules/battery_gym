@@ -169,12 +169,33 @@ EXPECT_EOF
         ssh -O exit gbar 2>/dev/null || true
         echo "[gbar_run] ControlMaster session closed."
         ;;
+    wait-and-fetch)
+        # Poll bjobs until DONE/EXIT, then fetch + plot. ControlMaster keeps
+        # us authenticated across polls (no re-prompt within 30 min idle).
+        prompt_password
+        echo "[gbar_run] polling job status every 60 s..."
+        while true; do
+            STATUS=$(ssh_run 'source /etc/profile 2>/dev/null; bjobs -a 2>&1 | tail -n +2 | head -1 | awk "{print \$3}"' 2>&1 | tail -1)
+            echo "  $(date +%H:%M:%S)  status=$STATUS"
+            case "$STATUS" in
+                DONE|EXIT) break ;;
+                "") echo "  no jobs found, exiting" ; exit 0 ;;
+            esac
+            sleep 60
+        done
+        mkdir -p "$LOCAL_RESULTS_DIR"
+        ssh_rsync "gbar:$REMOTE_DIR/ppo_logs/" "$LOCAL_RESULTS_DIR/"
+        ssh_rsync "gbar:$REMOTE_DIR/ppo_policy.zip" "$LOCAL_RESULTS_DIR/" || true
+        ssh_rsync "gbar:$REMOTE_DIR/phase2_ppo_*.out" "$LOCAL_RESULTS_DIR/" || true
+        echo "[gbar_run] fetched. running plot..."
+        python3 phase2_ppo_plot.py "$LOCAL_RESULTS_DIR/ppo_logs/phase2_ppo_results.json"
+        ;;
     diag)
         prompt_password
         ssh_run "echo === PATH === ; echo \$PATH ; echo ; echo === bsub === ; command -v bsub ; echo ; echo === bashrc head === ; head -30 ~/.bashrc 2>/dev/null ; echo ; echo === LSF locations === ; ls -d /opt/ibm/lsfsuite 2>/dev/null ; ls -d /usr/local/lsf 2>/dev/null ; ls /etc/profile.d/ 2>/dev/null | grep -i lsf ; echo === after profile === ; source /etc/profile 2>/dev/null ; source ~/.bashrc 2>/dev/null ; echo PATH=\$PATH ; command -v bsub"
         ;;
     *)
-        echo "Usage: $0 {deploy|status|fetch|shell|cancel-master|diag}"
+        echo "Usage: $0 {deploy|status|fetch|shell|cancel-master|diag|wait-and-fetch}"
         exit 1
         ;;
 esac
