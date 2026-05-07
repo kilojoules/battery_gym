@@ -142,9 +142,10 @@ case "$cmd" in
     fetch)
         prompt_password
         mkdir -p "$LOCAL_RESULTS_DIR"
-        ssh_rsync "gbar:$REMOTE_DIR/ppo_logs/" "$LOCAL_RESULTS_DIR/"
-        ssh_rsync "gbar:$REMOTE_DIR/ppo_policy.zip" "$LOCAL_RESULTS_DIR/"
-        ssh_rsync "gbar:$REMOTE_DIR/phase2_ppo_*.out" "$LOCAL_RESULTS_DIR/"
+        ssh_rsync "gbar:$REMOTE_DIR/ppo_logs/" "$LOCAL_RESULTS_DIR/" || true
+        ssh_rsync "gbar:$REMOTE_DIR/ppo_policy.zip" "$LOCAL_RESULTS_DIR/" || true
+        ssh_rsync "gbar:$REMOTE_DIR/phase2_ppo_*.out" "$LOCAL_RESULTS_DIR/" || true
+        ssh_rsync "gbar:$REMOTE_DIR/phase2_ppo_*.err" "$LOCAL_RESULTS_DIR/" || true
         echo "[gbar_run] results in $LOCAL_RESULTS_DIR/"
         ;;
     shell)
@@ -189,11 +190,16 @@ EXPECT_EOF
         done
         set -e
         mkdir -p "$LOCAL_RESULTS_DIR"
-        ssh_rsync "gbar:$REMOTE_DIR/ppo_logs/" "$LOCAL_RESULTS_DIR/"
+        ssh_rsync "gbar:$REMOTE_DIR/ppo_logs/" "$LOCAL_RESULTS_DIR/" || true
         ssh_rsync "gbar:$REMOTE_DIR/ppo_policy.zip" "$LOCAL_RESULTS_DIR/" || true
         ssh_rsync "gbar:$REMOTE_DIR/phase2_ppo_*.out" "$LOCAL_RESULTS_DIR/" || true
-        echo "[gbar_run] fetched. running plot..."
-        python3 phase2_ppo_plot.py "$LOCAL_RESULTS_DIR/ppo_logs/phase2_ppo_results.json"
+        ssh_rsync "gbar:$REMOTE_DIR/phase2_ppo_*.err" "$LOCAL_RESULTS_DIR/" || true
+        if [ -f "$LOCAL_RESULTS_DIR/ppo_logs/phase2_ppo_results.json" ]; then
+            echo "[gbar_run] fetched. running plot..."
+            python3 phase2_ppo_plot.py "$LOCAL_RESULTS_DIR/ppo_logs/phase2_ppo_results.json"
+        else
+            echo "[gbar_run] no results.json found; check gbar_results/phase2_ppo_*.err for failure cause."
+        fi
         ;;
     diag)
         prompt_password

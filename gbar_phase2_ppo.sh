@@ -49,6 +49,7 @@ python3 -c "import numpy, scipy, cvxpy, torch, stable_baselines3, gymnasium; pri
 python3 -u phase2_ppo.py \
     --total_timesteps 1000000 \
     --n_envs 4 \
+    --no_subproc \
     --T 168 \
     --lookahead 72 \
     --noise_train 8.0 \

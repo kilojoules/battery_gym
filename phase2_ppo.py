@@ -185,6 +185,8 @@ def main():
     parser.add_argument("--n_eval", type=int, default=30)
     parser.add_argument("--eval_only", action="store_true")
     parser.add_argument("--load", default=None)
+    parser.add_argument("--no_subproc", action="store_true",
+                         help="Force DummyVecEnv even when n_envs > 1")
     args = parser.parse_args()
 
     os.makedirs(args.log_dir, exist_ok=True)
@@ -208,21 +210,41 @@ def main():
                 return env
             return _thunk
 
-        vec_cls = SubprocVecEnv if args.n_envs > 1 else DummyVecEnv
-        venv = vec_cls([make_env(i) for i in range(args.n_envs)])
+        # Smoke-test single env first so we fail fast with a real traceback
+        print("[PPO] env smoke test...", flush=True)
+        e = ArbitrageGymEnv(**env_kwargs, base_seed=args.seed)
+        obs, info = e.reset()
+        print(f"  obs shape: {obs.shape}  dtype: {obs.dtype}  action_space: {e.action_space}", flush=True)
+        for _ in range(3):
+            obs, r, term, trunc, _ = e.step(np.zeros(1, dtype=np.float32))
+        print(f"  3 zero-steps OK; reward={r:.3f}", flush=True)
+        del e
+
+        # Default to DummyVecEnv (in-process); SubprocVecEnv only if user explicitly
+        # asks AND env pickles. Avoids fork+pickle issues.
+        if args.n_envs > 1 and not args.no_subproc:
+            try:
+                venv = SubprocVecEnv([make_env(i) for i in range(args.n_envs)])
+                print(f"[PPO] using SubprocVecEnv (n_envs={args.n_envs})", flush=True)
+            except Exception as ex:
+                print(f"[PPO] SubprocVecEnv failed ({ex}); falling back to DummyVecEnv", flush=True)
+                venv = DummyVecEnv([make_env(i) for i in range(args.n_envs)])
+        else:
+            venv = DummyVecEnv([make_env(i) for i in range(args.n_envs)])
+            print(f"[PPO] using DummyVecEnv (n_envs={args.n_envs})", flush=True)
         venv = VecMonitor(venv, filename=os.path.join(args.log_dir, "monitor.csv"))
 
-        print(f"[PPO] training: total_timesteps={args.total_timesteps}, "
-              f"n_envs={args.n_envs}, T={args.T}")
+        print(f"[PPO] training: total_timesteps={args.total_timesteps}, T={args.T}", flush=True)
         model = PPO("MlpPolicy", venv, verbose=1, seed=args.seed,
-                     n_steps=2048 // args.n_envs, batch_size=256,
+                     n_steps=max(2048 // max(args.n_envs, 1), 64), batch_size=256,
                      learning_rate=3e-4, gamma=0.99, gae_lambda=0.95,
                      ent_coef=0.0, n_epochs=10,
                      policy_kwargs=dict(net_arch=dict(pi=[128, 128], vf=[128, 128])),
                      tensorboard_log=args.log_dir)
+        print("[PPO] model constructed; starting learn()", flush=True)
         t0 = time.time()
         model.learn(total_timesteps=args.total_timesteps, progress_bar=False)
-        print(f"[PPO] trained in {time.time()-t0:.0f}s")
+        print(f"[PPO] trained in {time.time()-t0:.0f}s", flush=True)
         model.save(args.save)
         venv.close()
 
