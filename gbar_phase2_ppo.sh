@@ -25,21 +25,25 @@ source /etc/profile 2>/dev/null || true
 [ -f ~/.bashrc ] && source ~/.bashrc 2>/dev/null || true
 module load python3/3.11.9
 
-# 2. Build / reuse a venv in the project dir
+# 2. Build / reuse a venv in the project dir.
+#    Treat as "ready" only if the import sanity check passes; otherwise rebuild.
 VENV="$HOME/projects/battery_gym/.venv311"
-if [ ! -d "$VENV" ]; then
-    echo "[gbar] creating venv at $VENV"
+venv_ok=0
+if [ -d "$VENV" ]; then
+    "$VENV/bin/python3" -c "import numpy, scipy, cvxpy, torch, stable_baselines3, gymnasium" 2>/dev/null && venv_ok=1
+fi
+if [ "$venv_ok" -eq 0 ]; then
+    echo "[gbar] (re)creating venv at $VENV"
+    rm -rf "$VENV"
     python3 -m venv "$VENV"
-    "$VENV/bin/pip" install --quiet --upgrade pip
-    "$VENV/bin/pip" install --quiet \
-        'numpy<2' matplotlib scipy fatpack cvxpy
-    "$VENV/bin/pip" install --quiet \
-        torch --index-url https://download.pytorch.org/whl/cpu
-    "$VENV/bin/pip" install --quiet stable-baselines3 gymnasium
-    echo "[gbar] venv ready"
+    "$VENV/bin/pip" install --upgrade pip
+    "$VENV/bin/pip" install 'numpy<2' matplotlib scipy fatpack cvxpy
+    "$VENV/bin/pip" install torch --index-url https://download.pytorch.org/whl/cpu
+    "$VENV/bin/pip" install stable-baselines3 gymnasium
+    echo "[gbar] venv build done"
 fi
 source "$VENV/bin/activate"
-python3 -c "import numpy, scipy, cvxpy, torch, stable_baselines3, gymnasium; print('imports OK')"
+python3 -c "import numpy, scipy, cvxpy, torch, stable_baselines3, gymnasium; print('[gbar] imports OK')"
 
 # 3. Run training + benchmark
 python3 -u phase2_ppo.py \
