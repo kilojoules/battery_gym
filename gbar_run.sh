@@ -175,7 +175,8 @@ EXPECT_EOF
         prompt_password
         echo "[gbar_run] polling job status every 60 s..."
         while true; do
-            STATUS=$(ssh_run 'source /etc/profile 2>/dev/null; bjobs -a 2>&1 | tail -n +2 | head -1 | awk "{print \$3}"' 2>&1 | tail -1)
+            # bjobs -a default header has STAT in column 6 on gbar; use grep+awk
+            STATUS=$(ssh_run 'source /etc/profile 2>/dev/null; bjobs -a -noheader 2>&1 | head -1 | awk "{print \$6}"' 2>&1 | tail -1)
             echo "  $(date +%H:%M:%S)  status=$STATUS"
             case "$STATUS" in
                 DONE|EXIT) break ;;
