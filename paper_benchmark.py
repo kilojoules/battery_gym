@@ -35,6 +35,7 @@ from arbitrage_agents import (lp_linear_actions, qp_ensemble_actions,
 from degradation import cycle_degradation
 from dk_loader import (empirical_residuals, load_dk_year, multi_lag_persistence,
                        realized_and_persistence)
+from ercot_loader import multi_lag_persistence_ercot
 from env import PriceEnv
 
 
@@ -116,15 +117,18 @@ def dispatch_chunked_ensemble(realized: np.ndarray, forecasts_K: np.ndarray,
     return {"R": R_total, "D": D_total}
 
 
-def run_year(year: int, n_seeds: int, quick: bool = False) -> dict:
+def run_year(year: int, n_seeds: int, quick: bool = False,
+              source: str = "dk1") -> dict:
     """Per AMEND_02: ensemble = multi-lag persistence (24, 48, 168, 336 h).
 
-    The single-forecast baseline still uses persistence at -24 h.
-    The ensemble averages all 4 lags. Both are deterministic (no seed
-    sweep), so no bootstrap is needed for the headline -- the multi-lag
-    construction is itself the comparison.
+    Source: 'dk1' (Energinet DA, EUR/MWh) or 'ercot' (ERCOT HB_NORTH DA, USD/MWh).
     """
-    realized, forecasts_K = multi_lag_persistence(year, lags_hours=(24, 48, 168, 336))
+    if source == "dk1":
+        realized, forecasts_K = multi_lag_persistence(year, lags_hours=(24, 48, 168, 336))
+    elif source == "ercot":
+        realized, forecasts_K = multi_lag_persistence_ercot(year, lags_hours=(24, 48, 168, 336))
+    else:
+        raise ValueError(f"unknown source {source}")
     forecast_single = forecasts_K[0]  # 24 h lag
     residuals_24 = realized - forecast_single
     print(f"\n[{year}] T={len(realized)} h, residual_24h std={residuals_24.std():.1f} EUR/MWh")
@@ -157,6 +161,7 @@ def run_year(year: int, n_seeds: int, quick: bool = False) -> dict:
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--source", choices=["dk1", "ercot"], default="dk1")
     parser.add_argument("--years", type=int, nargs="+", default=[2021, 2022, 2023])
     parser.add_argument("--n_seeds", type=int, default=16)
     parser.add_argument("--quick", action="store_true",
@@ -167,6 +172,7 @@ def main():
     n_seeds = 4 if args.quick else args.n_seeds
     all_results = {
         "meta": {
+            "source": args.source,
             "years": args.years,
             "b_E_grid": B_E_GRID if not args.quick else [1, 2, 4, 8, 16, 32],
             "b_P_MW": B_P,
@@ -180,7 +186,9 @@ def main():
     }
     t_total = time.time()
     for year in args.years:
-        all_results["by_year"][str(year)] = run_year(year, n_seeds=n_seeds, quick=args.quick)
+        all_results["by_year"][str(year)] = run_year(year, n_seeds=n_seeds,
+                                                      quick=args.quick,
+                                                      source=args.source)
         # Save incrementally
         with open(args.out, "w") as f:
             json.dump(all_results, f, indent=2)
