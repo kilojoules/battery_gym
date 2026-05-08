@@ -116,6 +116,51 @@ def ensemble_forecasts(realized: np.ndarray, base_forecast: np.ndarray,
     return out
 
 
+def load_dk_resources(year: int, area: str = "DK1") -> pd.DataFrame:
+    """Pull hourly DK1 wind + solar + gross consumption. Cached locally.
+
+    Returns a DataFrame with timestamp_utc, wind_mwh, solar_mwh, load_mwh.
+    """
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    fp = DATA_DIR / f"{area}_resources_{year}.csv"
+    if fp.exists():
+        return pd.read_csv(fp, parse_dates=["timestamp_utc"])
+    rows = []
+    for month in range(1, 13):
+        start = f"{year}-{month:02d}-01"
+        end = f"{year + 1}-01-01" if month == 12 else f"{year}-{month + 1:02d}-01"
+        params = {
+            "start": start, "end": end,
+            "filter": f'{{"PriceArea":["{area}"]}}',
+            "limit": 10000,
+        }
+        for attempt in range(3):
+            try:
+                r = requests.get(
+                    "https://api.energidataservice.dk/dataset/ProductionConsumptionSettlement",
+                    params=params, timeout=30)
+                r.raise_for_status()
+                rows.extend(r.json()["records"])
+                break
+            except Exception as e:
+                if attempt == 2:
+                    raise RuntimeError(f"Failed {year}-{month}: {e}")
+                time.sleep(2)
+    df = pd.DataFrame(rows)
+    df["timestamp_utc"] = pd.to_datetime(df["HourUTC"], utc=True)
+    wind_cols = ["OffshoreWindLt100MW_MWh", "OffshoreWindGe100MW_MWh",
+                 "OnshoreWindLt50kW_MWh", "OnshoreWindGe50kW_MWh"]
+    solar_cols = ["SolarPowerLt10kW_MWh", "SolarPowerGe10Lt40kW_MWh",
+                  "SolarPowerGe40kW_MWh", "SolarPowerSelfConMWh"]
+    df["wind_mwh"] = df[wind_cols].fillna(0).sum(axis=1)
+    df["solar_mwh"] = df[solar_cols].fillna(0).sum(axis=1)
+    df["load_mwh"] = df["GrossConsumptionMWh"].fillna(0)
+    df = df[["timestamp_utc", "wind_mwh", "solar_mwh", "load_mwh"]]
+    df = df.sort_values("timestamp_utc").drop_duplicates(subset="timestamp_utc")
+    df.to_csv(fp, index=False)
+    return df.reset_index(drop=True)
+
+
 def multi_lag_persistence(year: int, area: str = "DK1",
                           lags_hours: tuple[int, ...] = (24, 48, 168, 336)
                           ) -> tuple[np.ndarray, np.ndarray]:
