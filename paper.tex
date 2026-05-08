@@ -1,0 +1,217 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\usepackage{amsmath, amssymb}
+\usepackage{booktabs}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage[round]{natbib}
+\usepackage{xcolor}
+
+\hypersetup{colorlinks=true, linkcolor=black, citecolor=blue, urlcolor=blue}
+
+\title{Forecast Uncertainty in Battery Dispatch:\\
+An Operational-vs-Sizing Decomposition}
+\author{Julian Quick \\ \small{Lawrence Berkeley National Laboratory}}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Hybrid power plant (HPP) sizing tools such as hydesign, REopt, and PyPSA capacity-expansion typically embed a \emph{deterministic} linear-programming (LP) inner dispatch loop --- prices and resource forecasts are treated as if known. In the operational layer, by contrast, commercial platforms (Tesla Autobidder, Fluence Mosaic, W\"{a}rtsil\"{a} GEMS) use machine-learning-driven \emph{stochastic} optimization that explicitly models forecast uncertainty. We test, on a controlled hourly arbitrage benchmark with battery rainflow degradation, whether the deterministic-vs-stochastic dispatch choice (i)~changes operational realized net present value (NPV) at fixed capacity, and (ii)~changes the optimal capacity recommended by a sizing sweep. We find a strong asymmetry: stochastic dispatch (a $K{=}4$ ensemble-mean QP) yields between $1.6\%$ and $55\%$ realized-NPV uplift over single-forecast QP across realistic-to-poor forecast noise levels, but the argmax of the sizing curve $b_E^*$ is \emph{invariant} across the same noise spectrum. The result has a practical implication for HPP modeling: the prevailing deterministic-LP-inner-dispatch approximation in academic sizing tools is empirically robust on the dimensions tested, while the operational stochastic-dispatch literature is justified independently. We release the benchmark (\texttt{battery\_gym}) for reproduction.
+\end{abstract}
+
+\section{Introduction}
+
+Designing a battery-augmented hybrid power plant requires answering two coupled questions: \emph{what to build} (sizing the wind, PV, and battery components) and \emph{how to operate it} (dispatch under uncertain weather and market conditions). The two are typically decomposed in academic tools: an outer surrogate-based optimizer searches over capacity decisions, and an inner deterministic LP simulates dispatch over a representative year using point-forecast prices and renewables \citep{murcia2024hydesign}. The outer loop evaluates the inner dispatch hundreds to thousands of times per run, making per-evaluation tractability the dominant constraint.
+
+Commercial dispatch platforms occupy a structurally different design space. Tesla Autobidder, Fluence Mosaic, and W\"{a}rtsil\"{a} GEMS Pulse all describe their architectures as machine-learning-driven \emph{stochastic} optimization that models forecast uncertainty and bids accordingly \citep{tesla2024autobidder, fluence2024mosaic, wartsila2025gems}. Battery storage academic literature reflects this gap: dispatch-only studies routinely use scenario LP, distributionally-robust optimization, or model predictive control \citep{krishnamurthy2018stochastic, ma2022wasserstein, evaluation2025mpc}, while sizing studies remain largely deterministic.
+
+This paper asks: how much does the deterministic approximation in sizing matter? We operationalize the question on a controlled benchmark and decompose the answer into two empirical findings:
+
+\begin{enumerate}
+\item \textbf{Operational Jensen-gap.} Stochastic-aware dispatch (mean-of-$K$-forecasts QP) outperforms deterministic single-forecast QP on lifetime NPV by $1.6$--$55\%$ across realistic-to-poor forecast quality. The mechanism is a Jensen-inequality consequence of nonlinear (convex) cycling cost: deterministic substitution overreacts to phantom price spikes in noisy forecasts.
+\item \textbf{Sizing invariance.} The optimal battery energy capacity $b_E^*$ recommended by a 7-point sizing sweep is identical (to the grid resolution tested) under both dispatch regimes, across a noise sweep. The dispatch-fidelity advantage shifts the NPV curve up roughly uniformly without changing its argmax.
+\end{enumerate}
+
+The two findings together motivate the academic-vs-production gap: deterministic inner-dispatch is structurally fine for sizing-decision recommendations, while stochastic inner-dispatch matters operationally for realized economics post-deployment. This decomposition justifies the prevailing convention in academic sizing tools (a deliberate tractability tradeoff, not naive modeling).
+
+\section{Related work}
+
+\paragraph{HPP sizing.}
+\citet{murcia2024hydesign} introduce \texttt{hydesign}, the canonical deterministic-inner-dispatch HPP sizing tool. \texttt{REopt} \citep{nrel2025bessdeg} and \texttt{PyPSA} use similar architectures. \citet{zhu2024hpp} extend \texttt{hydesign} with two-level (spot + balancing) dispatch but retain deterministic inner-LP substitution.
+
+\paragraph{Stochastic optimization in dispatch.}
+\citet{krishnamurthy2018stochastic} apply two-stage stochastic LP to day-ahead vs real-time arbitrage, reporting a $\sim 16\%$ gap between limited (24-h day-ahead + 1-h real-time) foresight and perfect foresight. \citet{burlando2025foresight} report 11\% in the German continuous intraday market. \citet{hancock2026rankcorrelation} show Kendall-$\tau$ rank correlation, not MAE, dominates dispatch value.
+
+\paragraph{Reinforcement learning in arbitrage with degradation.}
+\citet{cao2020drl} report 58.5\% lifetime-profit uplift of a noisy-network DDQN over MILP when the rainflow degradation model is in-loop and the MILP linearizes degradation. \citet{shi2017convex} construct a convex cycle-based relaxation that sits between linear penalty and full rainflow.
+
+\paragraph{Commercial platforms.}
+Tesla Autobidder ($>100$ GWh dispatched), Fluence Mosaic (16 GW deployed/awarded), and W\"{a}rtsil\"{a} GEMS Pulse all use ML-driven stochastic optimization. The closest open-source operational analogue is \texttt{enspired} (\euro40M Series B, 1 GW BESS managed, trading-as-a-service).
+
+\section{Methods}
+
+\subsection{Environment}
+
+We model a single-battery hourly-arbitrage MDP. State is the continuous SoC; the exogenous signal is an hourly price trace. Actions $a \in [-b_P, +b_P]$ where positive = discharge, negative = charge, with the standard SoC update $\text{SoC}_{t+1} = \text{SoC}_t - a_t / \eta$ for $a > 0$ and $\text{SoC}_{t+1} = \text{SoC}_t - a_t \eta$ for $a < 0$ (we use $\eta = 1$). Per-step reward is $r_t = p_t a_t - \alpha a_t^2$, where the quadratic penalty is a convex surrogate for cycle depth (consistent with the convex-cycle relaxation of \citet{shi2017convex}).
+
+Lifetime degradation $D$ is computed \emph{post-hoc} via rainflow cycle counting on the SoC trace using the standard ASTM E1049 / Downing-Socie 4-point algorithm and the stress function $f(\delta) = (k_1 \delta^{k_2} + k_3)^{-1}$ \citep{xu2018modeling}. Replacement events are scheduled when cumulative $D$ consumes a 20\% loss-of-health budget.
+
+\subsection{Synthetic price trace}
+
+A diurnal AR(1) process: hourly price $p_t = \mu + A_1 \sin(2\pi (t - 8)/24) + A_2 \sin(4\pi(t - 19)/24) + \nu_t$, where $\nu_t = \rho \nu_{t-1} + \mathcal{N}(0, \sigma)$. With $\mu = 50$, $A_1 = 35$, $A_2 = 15$, $\rho = 0.7$, $\sigma = 8$, the marginal trace has mean 48.5, std 28.4, range $[-18, 99]$ over a one-week horizon ($T = 168$ hours).
+
+A noisy forecast is constructed by adding stationary AR(1) noise: $\hat{p}_t = p_t + \epsilon_t$ with $\epsilon_t = \rho_f \epsilon_{t-1} + \mathcal{N}(0, \sigma_f \sqrt{1 - \rho_f^2})$, $\rho_f = 0.5$. We sweep $\sigma_f \in \{3, 8, 18\}$, mapping to good / realistic-poor / very-poor forecast quality respectively.
+
+\subsection{Dispatch policies}
+
+We compare three policies on the same realized prices:
+
+\begin{itemize}
+\item \textbf{LP-linear-with-forecast.} $\min \sum_t (-p_t a_t + \mu |a_t|)$ subject to SoC bounds; standard \texttt{scipy.linprog}.
+\item \textbf{QP-quadratic-single-forecast.} $\min \sum_t (-p_t a_t + \alpha a_t^2)$ on a single noisy forecast.
+\item \textbf{QP-quadratic-$K$-ensemble.} $K$ noisy forecasts of the same realized; solve QP on the ensemble mean.
+\end{itemize}
+
+QP solves use \texttt{cvxpy} with the CLARABEL solver. All three policies have perfect-foresight oracles for benchmarking.
+
+\subsection{Sizing model}
+
+A 1-week dispatch is projected to a 15-year lifetime NPV under repeated-week assumptions. Annual revenue $R_y = 52 \times R_{\text{week}}$; cumulative degradation $D_{\text{lifetime}} = 52 \times Y \times D_{\text{week}}$. Replacement events trigger when $52 \times D_{\text{week}}$ exceeds the loss-of-health budget per year. CAPEX is decomposed as $b_E \times C_{\text{MWh}} + b_P \times C_{\text{MW}}$, with $C_{\text{MWh}} = 100$ kEUR, $C_{\text{MW}} = 75$ kEUR. Replacements pay only the energy component; PCS is reused. Discount rate is 7\%.
+
+\section{Results}
+
+\subsection{Operational result: Jensen gap}
+
+Figure~\ref{fig:phase1} (left) shows realized weekly revenue at $b_E = 2$ MWh, $b_P = 2$ MW, $T = 168$ hours, averaged over 8 outer forecast seeds. As forecast noise grows, single-forecast QP collapses while the $K{=}4$ ensemble retains most of the oracle revenue.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.95\textwidth]{fig_phase1_benchmark.png}
+\caption{\label{fig:phase1}Operational result. \textbf{Left}: realized revenue vs forecast AR(1) noise std. \textbf{Right}: lift of $K{=}4$-ensemble QP over single-forecast QP and over LP-linear-with-forecast. Stochastic dispatch closes most of the perfect-foresight gap; the lift grows monotonically with noise.}
+\end{figure}
+
+\begin{table}[t]
+\centering
+\small
+\caption{\label{tab:operational}Realized weekly revenue, $b_E{=}2$, $b_P{=}2$, mean over 8 forecast seeds.}
+\begin{tabular}{rrrrr}
+\toprule
+Noise std & LP-linear & QP-single & QP-K=4 & Lift QP-K=4 vs single \\
+\midrule
+3  & 1438.6 & 1544.0 & 1572.6 & $+1.9\%$ \\
+5  & 1429.1 & 1472.6 & 1536.2 & $+4.3\%$ \\
+8  & 1373.1 & 1343.3 & 1504.0 & $+12.0\%$ \\
+12 & 1281.8 & 1131.9 & 1382.8 & $+22.2\%$ \\
+18 & 1074.0 &  878.1 & 1262.9 & $+43.8\%$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The mechanism is Jensen's inequality on a nonlinear cost objective. With linear cycling cost (LP), the QP is rank-invariant in prices: any monotone-rank-preserving transform of the forecast yields the same dispatch. With quadratic (or any convex nonlinear) cycling cost, the optimal cycling depth depends on price magnitudes, so noisy magnitudes of a single forecast bias the deterministic-substitution solution. Ensemble averaging reduces magnitude variance via central limit theorem, recovering most of the perfect-foresight value.
+
+\subsection{Sizing result: invariance}
+
+Figure~\ref{fig:s1} shows lifetime NPV vs battery energy capacity $b_E$ for both dispatch regimes. Power capacity $b_P$ is fixed at 1 MW; sweep is $b_E \in \{0.25, 0.5, 1, 2, 4, 8, 16\}$ MWh. Both regimes find the same optimum $b_E^* = 8$ MWh. The NPV curves are vertically translated by stochastic dispatch but not horizontally.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.95\textwidth]{fig_pilot_s1.png}
+\caption{\label{fig:s1}Sizing invariance. \textbf{Left}: lifetime NPV vs $b_E$ for both dispatch regimes. Both have $b_E^* = 8$ MWh. \textbf{Center}: replacement count over lifetime. Diverges only for $b_E \le 1$ MWh, where capacity is structurally suboptimal. \textbf{Right}: weekly arbitrage revenue vs $b_E$. Curves nearly identical.}
+\end{figure}
+
+\begin{table}[t]
+\centering
+\small
+\caption{\label{tab:sizing}Optimal $b_E^*$ across noise levels. The argmax of the NPV curve is invariant; the NPV uplift at the optimum grows with noise.}
+\begin{tabular}{rrrrr}
+\toprule
+Noise std & $b_E^*_{\text{det}}$ (MWh) & $b_E^*_{\text{sto}}$ (MWh) & Shift & NPV uplift at $b_E^*$ \\
+\midrule
+3  & 8 & 8 & $0\%$ & $+1.6\%$ \\
+8  & 8 & 8 & $0\%$ & $+9.3\%$ \\
+18 & 8 & 8 & $0\%$ & $+55.2\%$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The replacement-count plot reveals the mechanism. Stochastic dispatch saves replacements only at small $b_E$, where the battery is structurally too small and is being deeply cycled regardless of dispatch fidelity. At $b_E \ge 2$ MWh both regimes converge on the same replacement count. Revenue per kWh of capacity also saturates at the same scale for both regimes. The Pareto curve is therefore translated rather than tilted, and the argmax is preserved.
+
+\section{Discussion}
+
+\subsection{Why the academic-vs-production gap is structurally OK}
+
+The conventional academic sizing tool architecture --- outer Bayesian / EGO optimizer wrapping an inner deterministic LP that runs $10^3$--$10^4$ times per outer iteration --- is empirically robust on the sizing-recommendation question, at least for the configuration tested. A stochastic inner LP would multiply per-evaluation cost by 100--1000$\times$ (in our setup CLARABEL solves are 30--50 ms, so the difference is consequential). Our result suggests the recommendation it would produce is the same.
+
+This is consistent with the practical decomposition deployed by industry: capacity sizing is a one-shot investment decision; operational dispatch is a continuous re-optimization. Tesla Autobidder, Fluence Mosaic, and similar platforms target the operations layer where the Jensen-gap result has direct revenue impact. Sizing tools target investors making decadal capacity decisions, where forecast-fidelity sensitivity is dominated by long-term price scenario sensitivity that aggregates over years.
+
+\subsection{What would change the conclusion}
+
+The sizing-invariance result is specific to this synthetic price model. Three regimes that could break it:
+
+\begin{enumerate}
+\item \textbf{Multi-day price patterns.} A diurnal AR(1) process gives near-identical days; bigger batteries cannot extract additional inter-day arbitrage. Real prices have weekend dips, holiday spikes, and weather-driven volatility on multi-day timescales. Forecast errors over these timescales might specifically hurt the inter-day strategy bigger batteries enable.
+\item \textbf{Rare-event-driven revenue.} Texas-style price spikes can dominate annual revenue; getting them right requires forecast tail accuracy, where deterministic single-forecast QP is most fragile.
+\item \textbf{High renewable penetration with binding curtailment.} Battery is the marginal asset; capacity decisions are most sensitive in this regime.
+\end{enumerate}
+
+\subsection{Limitations}
+
+(i) Single-config synthetic prices, not real ENTSO-E or PJM data. (ii) No co-located wind / PV resources; battery-only. (iii) Repeated-week lifetime projection, not 8760-hour annual. (iv) Replacement-count discreteness can mask continuous shifts. (v) The Jensen-gap operational result is closely related to (and largely subsumed by) the established stochastic-LP literature \citep{krishnamurthy2018stochastic}; our contribution is the sizing-decomposition framing, not the operational lift itself.
+
+\section{Conclusion}
+
+We decompose the impact of forecast uncertainty in HPP design into operational and sizing components. The operational layer benefits substantially from stochastic-aware dispatch: $1.6$--$55\%$ realized-NPV uplift across forecast quality. The sizing layer is invariant: deterministic inner-LP gives the same optimal capacity recommendation as stochastic inner-LP across the noise spectrum tested. The asymmetry justifies the academic-vs-production architectural divergence, where sizing tools accept the deterministic approximation and operational platforms invest in stochastic optimization.
+
+\paragraph{Reproducibility.} The benchmark, three policies, and pilot scripts are at \url{https://github.com/kilojoules/battery_gym} (commit \texttt{e055a62}).
+
+\bibliographystyle{plainnat}
+\begin{thebibliography}{99}
+
+\bibitem[Burlando et al., 2025]{burlando2025foresight}
+Burlando, F., et al. (2025). The Value of Battery Energy Storage in the Continuous Intraday Market: Forecast vs.\ Perfect Foresight Strategies. \emph{arXiv:2501.07121}.
+
+\bibitem[Cao et al., 2020]{cao2020drl}
+Cao, J., Harrold, D., Fan, Z., Morstyn, T., Healey, D., Li, K. (2020). Deep Reinforcement Learning-Based Energy Storage Arbitrage With Accurate Lithium-Ion Battery Degradation Model. \emph{IEEE Transactions on Smart Grid}, 11(5):4513--4521.
+
+\bibitem[Evaluation, 2025]{evaluation2025mpc}
+Schultheis, J. et al.\ (2025). Evaluating the Impact of Model Accuracy for Optimizing Battery Energy Storage Systems. \emph{arXiv:2506.17059}.
+
+\bibitem[Fluence, 2024]{fluence2024mosaic}
+Fluence Energy (2024). Mosaic Intelligent Bidding Software. \url{https://fluenceenergy.com/mosaic-intelligent-bidding-software/}.
+
+\bibitem[Hancock et al., 2026]{hancock2026rankcorrelation}
+Hancock, A.\ et al.\ (2026). When Forecast Accuracy Fails: Rank Correlation and Decision Quality in Multi-Market Battery Storage Optimization. \emph{arXiv:2604.12082}.
+
+\bibitem[Krishnamurthy et al., 2018]{krishnamurthy2018stochastic}
+Krishnamurthy, D., Uckun, C., Zhou, Z., Thimmapuram, P., Botterud, A.\ (2018). Energy storage arbitrage under day-ahead and real-time price uncertainty. \emph{IEEE Transactions on Power Systems}, 33(1):84--93.
+
+\bibitem[Ma et al., 2022]{ma2022wasserstein}
+Ma, K., Hu, X., Song, Y.\ (2022). Wasserstein distributionally robust optimization for renewable-storage co-provision of frequency-regulation services. \emph{IEEE Transactions on Sustainable Energy}.
+
+\bibitem[Murcia Le\'{o}n et al., 2024]{murcia2024hydesign}
+Murcia Le\'{o}n, J.\,P., Habbou, H., Friis-M\o ller, M., Gupta, M., Zhu, R., Das, K.\ (2024). HyDesign: a tool for sizing optimization of grid-connected hybrid power plants including wind, solar photovoltaic, and lithium-ion batteries. \emph{Wind Energy Science}, 9:759--776.
+
+\bibitem[NREL, 2025]{nrel2025bessdeg}
+National Renewable Energy Laboratory (2025). Battery Degradation Modeling in Hybrid Power Plants: An Island System Unit Commitment Study. NREL/TP-FY25-84791.
+
+\bibitem[Shi et al., 2017]{shi2017convex}
+Shi, Y., Xu, B., Wang, D., Zhang, B.\ (2017). Using Battery Storage for Peak Shaving and Frequency Regulation: Joint Optimization for Superlinear Gains. \emph{arXiv:1703.07968}.
+
+\bibitem[Tesla, 2024]{tesla2024autobidder}
+Tesla, Inc.\ (2024). Autobidder Support Documentation. \url{https://www.tesla.com/support/energy/tesla-software/autobidder}.
+
+\bibitem[W\"{a}rtsil\"{a}, 2025]{wartsila2025gems}
+W\"{a}rtsil\"{a} Energy (2025). GEMS Pulse press release.
+
+\bibitem[Xu, 2018]{xu2018modeling}
+Xu, B.\ (2018). \emph{Modeling and Control of Energy Storage Systems for Power System Operations}. PhD thesis, University of Washington.
+
+\bibitem[Zhu et al., 2024]{zhu2024hpp}
+Zhu, R., Das, K., S\o rensen, P., Hansen, A.\,D.\ (2024). Enhancing profits of hybrid wind-battery plants in spot and balancing markets using data-driven two-level optimization. \emph{International Journal of Electrical Power \& Energy Systems}, 159:110030.
+
+\end{thebibliography}
+
+\end{document}
