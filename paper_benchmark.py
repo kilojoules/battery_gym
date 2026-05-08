@@ -38,7 +38,7 @@ from dk_loader import (empirical_residuals, load_dk_year, multi_lag_persistence,
 from env import PriceEnv
 
 
-B_E_GRID = [0.5, 1, 2, 4, 6, 8, 10, 12, 16, 24, 32, 48, 64]
+B_E_GRID = [0.5, 1, 2, 4, 8, 16, 24, 32, 48, 64, 96, 128, 192, 256]
 B_P = 1.0
 ALPHA_QP = 0.005
 MU_LP = 5.0
