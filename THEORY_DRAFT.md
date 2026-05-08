@@ -1,195 +1,230 @@
 # When does forecast-handling translate uniformly across capacity?
 
-**Date:** 2026-05-08
+**Date:** 2026-05-08 (v2 — non-circular)
 **Goal:** derive a sufficient condition under which the argmax of the
-sizing curve is invariant to the choice of dispatch policy. Identify
-what breaks the condition. This converts the paper from "we observed a
-null" to "we proved when the null is principled and probed the
-boundary."
+sizing curve is invariant to the choice of dispatch policy. Earn this
+condition from price-process primitives, not from "the policies happen
+to plateau at the same place."
 
-## Setup
+## Critique of v1: the circular version
+
+Original proposition: argmax invariance holds when $\Delta(b)$ is
+locally flat at $b^*$ and replacement counts agree. **Circular.** "Lift
+near $b^*$ doesn't shift the argmax" is just argmax invariance restated.
+
+Real content has to derive $b_{\mathrm{sat}}(\pi)$ from primitives. v2:
+
+## Setup (unchanged)
 
 - $b$: battery energy capacity (MWh). Power capacity $b_P$ fixed.
-- $\pi$: dispatch policy (a measurable map from $(\text{state},
-  \text{forecast})$ to action).
-- $R(b, \pi)$: expected lifetime revenue under policy $\pi$ given
-  capacity $b$, scored on realized prices.
-- $C(b) = c_E b + c_P b_P$: linear-in-$b$ CAPEX with a fixed PCS
-  component.
-- $N(b, \pi)$: expected replacement count (integer-valued, weakly
-  decreasing in $b$ for any reasonable degradation model).
-- $K_R$: per-replacement battery cost (proportional to $b$, energy
-  component only).
-- $\mathrm{NPV}(b, \pi) = R(b, \pi) - c_E b - c_P b_P - N(b, \pi) \cdot K_R(b)$.
+- $\pi$: dispatch policy mapping (state, forecast) $\to$ action.
+- $R(b, \pi)$: expected lifetime revenue.
+- $C(b) = c_E b + c_P b_P$.
+- $\mathrm{NPV}(b, \pi) = R(b, \pi) - C(b)$ (replacements absorbed
+  into $C$ for cleanness; revisit below).
 
-Optimal sizing: $b^*(\pi) = \arg\max_b \mathrm{NPV}(b, \pi)$.
+## Derivation from price-process primitives
 
-## Sufficient condition for argmax invariance
+Let $p(t)$ be the realized price process with spectral density
+$S_p(\omega)$. A pure single-tone process at frequency $\omega_0$
+(period $\tau_0 = 2\pi/\omega_0$) with amplitude $A$ has a peak-to-trough
+spread $2A$ over $\tau_0/2$. A battery with power $b_P$ extracting this
+arbitrage in one cycle uses energy throughput
 
-**Assumption A1** (regular CAPEX). $C(b)$ is linear in $b$.
+$$b_E^{\mathrm{cycle}}(\tau_0) = b_P \cdot \tau_0 / 2.$$
 
-**Assumption A2** (revenue concave, plateaus). $R(b, \pi)$ is
-non-decreasing and concave in $b$, with a plateau capacity
-$b_{\mathrm{sat}}(\pi)$ such that $R'(b, \pi) \to 0$ for
-$b \geq b_{\mathrm{sat}}(\pi)$.
+Capacity past this threshold contributes nothing to one-cycle revenue:
+$R'(b, \pi) = 0$ for $b > b_E^{\mathrm{cycle}}(\tau_0)$. The marginal
+revenue plateau $b_{\mathrm{sat}}$ is exactly $b_P \tau_0 / 2$.
 
-**Assumption A3** (degradation step function). $N(b, \pi)$ is piecewise
-constant in $b$ between replacement-count jumps. The jumps occur at the
-same $b$ values for both policies whenever cycling depth is determined
-by capacity (i.e., when $b$ controls the depth, not the policy).
+For a multi-timescale process with weight at frequencies
+$\{\omega_1, \omega_2, ...\}$, capacity unlocks longer-period arbitrage.
+The *resolvable* arbitrage at frequency $\omega_k$ requires the policy
+to identify the cycle's peak and trough timing within its forecast
+horizon.
 
-**Theorem (Argmax invariance — informal).** Under A1-A3, if the two
-policies $\pi_1, \pi_2$ satisfy:
+**Key primitive: forecast resolution.** Let $q(\omega, \pi) \in [0, 1]$
+be the fraction of price variance at frequency $\omega$ that policy
+$\pi$ can resolve from its forecast input. For the deterministic
+single-forecast policy $\pi_{\mathrm{det}}$ on a forecast with stationary
+AR(1) noise of marginal variance $\sigma_f^2$:
 
-1. $R(b, \pi_2) = R(b, \pi_1) + \Delta(b)$ with $\Delta(b)$ constant in
-   $b$ in a neighborhood of $b^*(\pi_1)$ — i.e., the lift is
-   *capacity-independent* at the argmax.
-2. $N(b, \pi_1) = N(b, \pi_2)$ in the same neighborhood.
+$$q(\omega, \pi_{\mathrm{det}}) \approx \frac{S_p(\omega)}{S_p(\omega) + \sigma_f^2 / (1 - \rho_f^2)}$$
 
-Then $b^*(\pi_1) = b^*(\pi_2)$.
+(Wiener-filter-style SNR; signal vs noise at each frequency.) Long
+timescales — where signal power is concentrated in a few low-frequency
+modes — are most affected by the noise floor.
 
-**Sketch.** From the first-order condition,
-$\partial_b \mathrm{NPV}(b^*, \pi) = 0$ implies
-$R'(b^*, \pi) = c_E + \partial_b [N(b^*, \pi) K_R(b^*)]$
-(the FOC, treating $N$ as locally constant past jump points).
+For a $K$-forecast ensemble policy with iid forecast noise samples,
+ensemble-mean reduces noise variance by $1/K$:
 
-If $\Delta'(b^*) = 0$ (assumption 1), then $R'(b^*, \pi_1) =
-R'(b^*, \pi_2)$. With $N$ identical in the neighborhood (assumption 2),
-the FOC is identical, so the same $b^*$ solves both.
+$$q(\omega, \pi_{\mathrm{ens},K}) \approx \frac{S_p(\omega)}{S_p(\omega) + \sigma_f^2 / (K(1 - \rho_f^2))}.$$
 
-Concavity of $R$ ensures the FOC has a unique stationary point; the
-argmaxes coincide. $\square$
+So $q(\omega, \pi_{\mathrm{ens},K}) > q(\omega, \pi_{\mathrm{det}})$ for
+all $\omega$, and the gap is widest where signal is comparable to or
+weaker than noise.
 
-**Corollary (when invariance fails).** If $b_{\mathrm{sat}}(\pi_1) \neq
-b_{\mathrm{sat}}(\pi_2)$ — i.e., one policy continues extracting
-revenue from capacity past where the other has plateaued — then
-$\Delta'(b)$ is non-zero in the relevant range, and the argmaxes
-generically differ.
+**Resolvable timescale.** Define $\tau_{\mathrm{res}}(\pi) =
+2\pi / \omega_{\mathrm{cut}}(\pi)$, where $\omega_{\mathrm{cut}}$ is the
+lowest frequency at which $q$ drops below some threshold (e.g., 0.5).
+Past this timescale, the policy cannot reliably identify arbitrage.
 
-## The diurnal-AR(1) regime satisfies the condition
+## Proposition (revised)
 
-In a single-period-per-day arbitrage problem (the synthetic regime in
-Pilot S1):
+**Proposition (sketch).** Suppose:
 
-- The dominant arbitrage opportunity is the daily peak-trough spread.
-- Both policies extract this opportunity once $b$ exceeds the daily
-  energy throughput threshold $b_{\mathrm{sat}}^{(1\text{day})}$.
-- Past $b_{\mathrm{sat}}^{(1\text{day})}$, neither policy has additional
-  multi-day arbitrage to exploit (no inter-day price structure beyond
-  AR(1) noise).
-- Consequently $b_{\mathrm{sat}}(\pi_1) = b_{\mathrm{sat}}(\pi_2) =
-  b_{\mathrm{sat}}^{(1\text{day})}$, and $\Delta(b)$ flattens past this
-  point.
-- The empirical revenue curves in Figure 2 (right panel) confirm this:
-  the two policies' revenue curves are nearly parallel from $b \approx 4$
-  MWh upward.
+(P1) $R(b, \pi)$ is non-decreasing concave in $b$ with plateau at
+$b_{\mathrm{sat}}(\pi) = b_P \cdot \tau_{\mathrm{res}}(\pi) / 2$,
+where $\tau_{\mathrm{res}}(\pi)$ is the resolvable-timescale primitive
+defined above.
 
-The Pilot S1 invariance result is *expected* under the theorem — not
-fortuitous.
+(P2) CAPEX is linear in $b$ with constant $c_E > 0$ such that
+$c_E < R'(b, \pi)$ for all $b < b_{\mathrm{sat}}(\pi)$ (the battery is
+worth building at all).
 
-## Where the condition breaks (testable)
+Then $b^*(\pi) = b_{\mathrm{sat}}(\pi)$, and the sizing argmax is
+invariant across policies iff
+$\tau_{\mathrm{res}}(\pi_1) = \tau_{\mathrm{res}}(\pi_2)$, which is iff
+the price spectrum $S_p$ has all of its dispatch-relevant power at
+frequencies above both policies' cutoffs.
 
-**Multi-period structure.** If price has variance at timescales $\tau >
-1$ day (e.g., weekend dips, weather-driven price clustering), bigger
-batteries can exploit longer-window arbitrage. Forecast errors at
-timescales near $\tau$ differentially hurt the deterministic policy
-(which commits based on a single noisy multi-day forecast). The
-stochastic policy hedges across scenarios, recovering more of the
-multi-day arbitrage value. So:
+**Corollary (regime characterization).**
 
-$$b_{\mathrm{sat}}(\pi_{\mathrm{sto}}) > b_{\mathrm{sat}}(\pi_{\mathrm{det}})$$
+- *Single-timescale regime* (all $S_p$ power at $\omega \gg
+  \omega_{\mathrm{cut}}$): both policies resolve everything;
+  $\tau_{\mathrm{res}}$ identical; argmax invariant.
+- *Multi-timescale regime* (significant $S_p$ power at frequencies near
+  or below $\omega_{\mathrm{cut}}(\pi_{\mathrm{det}})$): the
+  deterministic policy fails to resolve longer-period arbitrage;
+  $\tau_{\mathrm{res}}(\pi_{\mathrm{ens}}) > \tau_{\mathrm{res}}(\pi_{\mathrm{det}})$;
+  argmax shift $\Delta b^* \approx b_P \cdot
+  (\tau_{\mathrm{res}}(\pi_{\mathrm{ens}}) - \tau_{\mathrm{res}}(\pi_{\mathrm{det}})) / 2$.
 
-and $\Delta'(b) > 0$ in the gap, producing $b^*(\pi_{\mathrm{sto}}) >
-b^*(\pi_{\mathrm{det}})$.
+Now $b_{\mathrm{sat}}$ is derived from $(S_p, \sigma_f, \rho_f, K, b_P)$,
+not defined as "where the curve happens to flatten." This earns the
+condition.
 
-**Rare price events (price spikes).** If a small fraction of hours
-contribute disproportionate revenue (ERCOT 2021-style), forecast
-miscalls of a single spike are equivalent to a multi-day arbitrage
-miss. Same mechanism.
+## Consistency with Pilot S1 numerics
 
-**Curtailment-binding regimes.** When battery is the marginal asset in
-an HPP (high renewable penetration), forecast errors translate
-directly to capacity shortfalls. The marginal value of capacity becomes
-policy-dependent.
+Pilot S1 used diurnal AR(1):
+$p(t) = \mu + A_1 \sin(2\pi t / 24) + A_2 \sin(4\pi t / 24)
++ \nu_t$,
+$\nu_t$ AR(1) at hourly scale. The spectrum $S_p$ has dominant peaks at
+$\tau_1 = 24$ h and $\tau_2 = 12$ h plus broadband AR(1) noise. No power
+at $\tau > 24$ h beyond what AR(1) carries.
 
-In each case, the diagnostic is the same: compute $b_{\mathrm{sat}}$
-empirically per policy. If they differ, expect a sizing shift.
+The dominant arbitrage timescale is 24 h. Both single-forecast and
+$K{=}4$ ensemble resolve a 24-h cycle robustly at the noise levels
+tested (noise std 3-18 vs price amplitude $A_1 = 35$, so SNR at 24 h is
+high). $\tau_{\mathrm{res}}$ is identical $\to$ $b_{\mathrm{sat}}$
+identical $\to$ argmax invariant. Confirmed empirically.
 
-## Diagnostic test (empirical, cheap)
+## What ERCOT 2021-2023 should look like
 
-For a given price process and dispatch policy, define
-$b_{\mathrm{sat}}^{\epsilon}(\pi) = \inf \{b : R(b+\delta, \pi) -
-R(b, \pi) < \epsilon \cdot \delta \text{ for all } \delta > 0\}$
-for small $\epsilon$.
+ERCOT prices have spectral content at:
+- Diurnal (24 h), weekly (168 h), seasonal (~2000 h)
+- Aperiodic large-amplitude spikes (rare events with broadband
+  contribution)
 
-**Empirically:** sweep $b$ on a fine linear grid; estimate $R'(b, \pi)$
-via finite differences; report the smallest $b$ where $R'$ drops below
-threshold. Bootstrap CIs across forecast seeds.
+The diagnostic prediction: at moderate forecast noise, $\tau_{\mathrm{res}}(\pi_{\mathrm{det}})$
+clips below the weekly mode, while $\pi_{\mathrm{ens}}$ extends past it.
+$b_{\mathrm{sat}}$ shifts; argmax shifts; sizing tools using
+deterministic inner-LP under-recommend battery capacity by an amount
+proportional to $b_P \cdot (168 - 24) / 2 = 72 b_P$ MWh in the
+weekly-arbitrage-bound regime.
 
-Run this for $\pi_{\mathrm{det}}$ and $\pi_{\mathrm{sto}}$. If
-$b_{\mathrm{sat}}^{\epsilon}$ overlaps within CIs across policies,
-sizing-invariance is structural for that price process. If not, the
-gap between them is a quantitative measure of how much the academic-
-tool deterministic-LP-inner-dispatch approximation costs in sizing
-recommendations.
+Concretely for $b_P = 1$ MW: predicted shift $\sim 72$ MWh past
+$b_{\mathrm{sat}}(\pi_{\mathrm{det}}) \approx 12$ MWh, i.e., argmax
+moves from 12 MWh to ~80 MWh. A factor-of-7 shift.
 
-## What this gives the paper
+This is testable on real data with the existing pipeline.
 
-1. **A theorem with a clear sufficient condition.** Converts the
-   empirical observation in Pilot S1 into a falsifiable claim with a
-   specified breaking condition.
-2. **A regime characterization.** Synthetic AR(1) is the proof case;
-   ERCOT 2021-2023 is the boundary probe.
-3. **Both empirical outcomes are publishable.** Invariance survives on
-   ERCOT $\to$ academic-tool convention validated more broadly. Invariance
-   breaks on ERCOT $\to$ the gap is the paper.
-4. **A diagnostic that practitioners can compute on their own data.**
-   $b_{\mathrm{sat}}^{\epsilon}$ overlap test, no theory required to
-   apply.
+## The diagnostic test (highlighted, standalone)
 
-## Caveats and limitations
+Independent of whether the proposition holds rigorously, the diagnostic
+test stands alone:
 
-- The theorem treats $N(b, \pi)$ as locally constant; the
-  step-function discreteness can mask continuous shifts. Need a
-  finer-grained replacement model (or skip replacement entirely and
-  use a continuous SoH-decay model) to fully formalize.
-- Concavity of $R$ in $b$ is assumed; if $R$ is non-concave (e.g.,
-  multimodal due to discrete arbitrage strategies), the FOC argument
-  fails. Hard to construct a real counterexample, but it's worth
-  flagging.
-- "Capacity-independent lift" $\Delta'(b) = 0$ is a strong condition;
-  in practice we'd test this empirically rather than analytically.
-- The theorem doesn't tell us *why* a particular price process has
-  $\Delta'(b) = 0$ — it only relates that property to the argmax
-  invariance. The mechanistic step (showing $\Delta$ flattens because
-  both policies saturate at the same capacity) is content the paper
-  argues empirically.
+**$b_{\mathrm{sat}}^{\epsilon}$ regime classifier.**
+For a given price process and dispatch policy $\pi$:
 
-## Self-test: does this hold up?
+1. Sweep $b$ on a fine linear grid.
+2. Estimate $R'(b, \pi)$ via finite differences with bootstrap CIs
+   across forecast realizations.
+3. Define $b_{\mathrm{sat}}^{\epsilon}(\pi)$ = smallest $b$ where
+   $R'(b, \pi) < \epsilon$.
 
-Yes, the structure is right. Two informal-but-clean equations carry the
-load:
+The pair $(b_{\mathrm{sat}}^{\epsilon}(\pi_{\mathrm{det}}),
+b_{\mathrm{sat}}^{\epsilon}(\pi_{\mathrm{ens}}))$ classifies the regime:
 
-1. $b^*(\pi_1) = b^*(\pi_2)$ iff FOC residual is the same at both
-   optima, which (under shared CAPEX and replacement structure)
-   reduces to $R'(b^*, \pi_1) = R'(b^*, \pi_2)$, which (under shared
-   plateau) is automatic.
-2. The plateau is shared iff there's no arbitrage opportunity past
-   $b_{\mathrm{sat}}$ that one policy can exploit and the other
-   cannot. This requires single-period structure or multi-period
-   structure that both policies handle equally well.
+- Overlap within CIs $\to$ deterministic-LP sizing tools are robust on
+  this market.
+- Significant gap $\to$ deterministic-LP sizing tools systematically
+  under-size battery capacity by approximately
+  $b_{\mathrm{sat}}^{\epsilon}(\pi_{\mathrm{ens}}) -
+  b_{\mathrm{sat}}^{\epsilon}(\pi_{\mathrm{det}})$ on this market.
 
-The condition is non-trivial (it can fail) and testable (compute
-$b_{\mathrm{sat}}$ empirically). It earns a "lemma" or "proposition"
-slot in the paper, not a "theorem" — the assumptions are loose and the
-proof is a sketch — but it's a real theoretical contribution that
-upgrades the paper from "we ran an experiment" to "we proved the
-condition under which our experiment was a sanity check, and probed
-its boundary on real data."
+**Cheap to compute** (no SLP, no theorem). **Practitioner-runnable**
+on their own market data. **Falsifiable.** Lead figure for the paper:
+the $b_{\mathrm{sat}}^{\epsilon}$ pair plotted across markets
+(synthetic-AR(1), ERCOT, CAISO, Nord Pool intraday).
 
-## Next step
+## Caveats (now including the b_P slice)
 
-Skip ERCOT integration today. Tomorrow: write the proposition + sketch
-into paper.tex as a new section. If the framing holds up under fresh
-eyes, do the ERCOT extension. If it falls apart on re-reading, that's
-diagnostic — drop the rework, accept (1) withdraw.
+1. **Replacement-count step-function** discreteness can mask continuous
+   shifts. The proposition treats replacement cost as absorbed into
+   linear CAPEX; in practice replacement schedule is discrete and
+   policy-dependent. A continuous SoH-decay model would clean this up.
+
+2. **Concavity of $R(b, \pi)$** is assumed. Holds for arbitrage on
+   stationary processes; can fail with discrete strategy switching.
+
+3. **One-dimensional sizing slice** (only $b_E$ varies, $b_P$ fixed).
+   The proposition's $b_{\mathrm{sat}}(\pi) = b_P \tau_{\mathrm{res}}(\pi)/2$
+   linear-in-$b_P$ form predicts that on a 2-D $(b_E, b_P)$ surface,
+   invariance might hold along the $b_E$ axis while breaking along the
+   $b_P$ axis (a higher-power battery can resolve faster cycles or
+   exploit price spikes that the lower-power one cannot, and the
+   forecast-quality-dependence of that resolution is a separate effect
+   from the capacity-dependence). The full 2-D analysis is left for
+   future work; the slice result is what we test.
+
+4. **The Wiener-style $q(\omega, \pi)$ approximation** assumes Gaussian
+   linearity. Real forecast errors are fat-tailed and
+   regime-conditional; the resolvable-timescale concept holds
+   intuitively but the closed form is heuristic.
+
+5. **The threshold parameter $\epsilon$** in $b_{\mathrm{sat}}^{\epsilon}$
+   has to be chosen. Sensitivity to $\epsilon$ is a real concern but
+   tractable: report results for $\epsilon \in \{0.01, 0.05, 0.1\} \cdot
+   c_E$.
+
+## Self-test against reviewer's circularity charge
+
+v2 does derive $b_{\mathrm{sat}}(\pi)$ from primitives:
+$(S_p, \sigma_f, \rho_f, K, b_P) \to \tau_{\mathrm{res}}(\pi)
+\to b_{\mathrm{sat}}(\pi)$. The proposition then states a relationship
+between argmax invariance and $\tau_{\mathrm{res}}$ equality. Whether
+$\tau_{\mathrm{res}}$ values agree on a given price process is an
+empirical question answerable from the spectrum, not a definitional one.
+
+The Wiener-style derivation of $q(\omega, \pi)$ is the load-bearing
+part. If that derivation is too loose for a paper, the proposition
+collapses. But the diagnostic $b_{\mathrm{sat}}^{\epsilon}$ test
+survives independently as an empirical regime classifier.
+
+## Decision criterion for the paper
+
+- Theory holds up: integrate proposition + diagnostic into paper.tex
+  as a new \S{}3 between Methods and Results. Run ERCOT to test the
+  factor-of-7 prediction. ~10 days to submission.
+- Theory falls apart on closer reading: keep the diagnostic
+  $b_{\mathrm{sat}}^{\epsilon}$ as the standalone contribution. Reframe
+  paper as "regime classifier for sizing-tool fidelity," empirical only.
+  ~7 days to submission.
+- Both fall apart: withdraw.
+
+Re-read tomorrow. Most-likely failure mode: the Wiener-filter $q(\omega,
+\pi)$ form is too cute for a battery-dispatch context where the
+"signal" isn't easily disentangled from the "decision" (the policy is
+nonlinear, not a linear filter). Accept that and downgrade to the
+empirical diagnostic — it's the gem regardless.
