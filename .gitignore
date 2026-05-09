@@ -14,3 +14,4 @@ multi_seed_summary.json
 _seed*.json
 scale_check_results.json
 .claude/
+data/

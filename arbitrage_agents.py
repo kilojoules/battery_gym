@@ -23,20 +23,20 @@ def _soc_constraint_matrices(T: int, b_E: float, soc0: float, eta: float):
     SoC[t] = soc0 + eta * sum(P_chg[0..t]) - sum(P_dis[0..t]) / eta,
     constrained to [0, b_E].
 
-    For eta=1 collapses to the simple form.
+    Vectorized sparse construction via scipy.sparse.tril for O(T^2/2) nnz.
     """
-    A = np.zeros((2 * T, 2 * T))
-    b = np.zeros(2 * T)
+    from scipy.sparse import bmat, csr_matrix, tril
     inv_eta = 1.0 / max(eta, 1e-9)
-    for t in range(T):
-        # Upper: soc0 + eta * cumsum(P_chg) - inv_eta * cumsum(P_dis) <= b_E
-        A[t, 0:t+1] = eta
-        A[t, T:T+t+1] = -inv_eta
-        b[t] = b_E - soc0
-        # Lower: -[ ... ] <= -0  i.e. soc0 + eta*cumsum_c - inv_eta*cumsum_d >= 0
-        A[T+t, 0:t+1] = -eta
-        A[T+t, T:T+t+1] = inv_eta
-        b[T+t] = soc0
+    L = tril(np.ones((T, T)), format="csr")  # lower-triangular ones
+    # Upper SoC bound: eta*L * P_chg - inv_eta*L * P_dis <= b_E - soc0
+    A_upper = bmat([[eta * L, -inv_eta * L]], format="csr")
+    # Lower SoC bound: -eta*L * P_chg + inv_eta*L * P_dis <= soc0
+    A_lower = bmat([[-eta * L, inv_eta * L]], format="csr")
+    A = bmat([[A_upper], [A_lower]], format="csr")
+    b = np.concatenate([
+        np.full(T, b_E - soc0),
+        np.full(T, soc0),
+    ])
     return A, b
 
 
