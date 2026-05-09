@@ -48,10 +48,12 @@ def build_features(prices: np.ndarray, timestamps: pd.DatetimeIndex):
     for i, lag in enumerate(lags):
         X[:, i] = prices[max_lag - lag : n - lag]
     ts = timestamps[max_lag:]
-    X[:, len(lags)]     = np.sin(2 * np.pi * ts.hour / 24)
-    X[:, len(lags) + 1] = np.cos(2 * np.pi * ts.hour / 24)
-    X[:, len(lags) + 2] = np.sin(2 * np.pi * ts.dayofweek / 7)
-    X[:, len(lags) + 3] = np.cos(2 * np.pi * ts.dayofweek / 7)
+    hour = ts.dt.hour.values if hasattr(ts, "dt") else ts.hour
+    dow = ts.dt.dayofweek.values if hasattr(ts, "dt") else ts.dayofweek
+    X[:, len(lags)]     = np.sin(2 * np.pi * hour / 24)
+    X[:, len(lags) + 1] = np.cos(2 * np.pi * hour / 24)
+    X[:, len(lags) + 2] = np.sin(2 * np.pi * dow / 7)
+    X[:, len(lags) + 3] = np.cos(2 * np.pi * dow / 7)
     y = prices[max_lag:]
     return X, y
 
@@ -122,13 +124,15 @@ def dispatch(realized, fc, b_E, b_P, cost, m, ensemble=False):
 
 
 def run_year(source: str, year: int, n_estimators: int = 120) -> dict:
-    """Train forecast model on year-1 (or wraparound), apply to target year."""
+    """Train forecast model on the OTHER two years (out-of-sample),
+    apply to target year. Avoids needing year-1 data not in our cache."""
+    other_years = [y for y in [2021, 2022, 2023] if y != year]
     if source == "dk1":
-        df_train = load_dk_year(year - 1)
+        df_train = pd.concat([load_dk_year(y) for y in other_years], ignore_index=True)
         df_test = load_dk_year(year)
         col = "da_eur_per_mwh"
     else:
-        df_train = load_ercot_year(year - 1)
+        df_train = pd.concat([load_ercot_year(y) for y in other_years], ignore_index=True)
         df_test = load_ercot_year(year)
         col = "da_usd_per_mwh"
 
