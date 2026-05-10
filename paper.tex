@@ -247,13 +247,31 @@ ERCOT N. & 2023 & 8 & 8 & 8 & 8 \\
 
 \paragraph{Scenario stochastic LP (SLP).} Two-stage rolling-horizon
 SLP with N=50 scenarios per 24-h window, scenarios drawn from the
-empirical (DA - DA(t-24h)) residual pool. \emph{Result (5/6 regimes
-complete; one still running on LUMI):} SLP $b_E^*$ matches the
-multi-lag-ensemble argmax in every completed regime (DK1 2022 $\to$
-8, DK1 2023 $\to$ 4, ERCOT 2021 $\to$ 4, ERCOT 2022 $\to$ 8, ERCOT
-2023 $\to$ 8). SLP NPV is lower than full-horizon LP by 5--30\%,
-consistent with the rolling-horizon vs perfect-foresight gap; the
-sizing recommendation, however, is the same.
+empirical (DA - DA(t-24h)) residual pool. \emph{Result:} SLP $b_E^*$
+matches the multi-lag-ensemble argmax in all 6 regimes (DK1 2021 $\to$
+4, DK1 2022 $\to$ 8, DK1 2023 $\to$ 4, ERCOT 2021 $\to$ 4, ERCOT 2022
+$\to$ 8, ERCOT 2023 $\to$ 8). SLP NPV is lower than full-horizon LP
+by 5--30\%, consistent with the rolling-horizon vs perfect-foresight
+gap; the sizing recommendation, however, is the same. See
+Figure~\ref{fig:slp}.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.95\textwidth]{fig_paper_2d.png}
+\caption{\label{fig:2d}2-D NPV surfaces (QP-ensemble dispatch). Markers show argmax for each of the 4 policies. The four argmaxes coincide at the same (b_P*, b_E*) cell in every (market, year) panel, confirming 1-D invariance generalises to 2-D. Most argmaxes land at the corner of the tested grid, suggesting the actual optimum lies past our range.}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.95\textwidth]{fig_paper_quantile.png}
+\caption{\label{fig:quantile}NPV vs $b_E$ under persistence-K=4 (solid) and quantile-K=20 (dashed) ensembles. DK1 2022 (top centre) is the only panel where the linear-cost single-forecast argmax disagrees with the others under the richer quantile ensemble.}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.95\textwidth]{fig_paper_slp.png}
+\caption{\label{fig:slp}Two-stage rolling-horizon stochastic LP (N=50 scenarios per 24-h window, green) compared to full-horizon QP-single and QP-ensemble. SLP NPV is lower (rolling vs perfect-foresight gap) but argmax $b_E^*$ matches in every market-year.}
+\end{figure}
 
 \paragraph{Combined verdict.} Across (a) the original 6 (market,
 year) regimes with persistence ensemble, (b) the 6 regimes with
